@@ -1,0 +1,16 @@
+{
+  "name": "フォトログ",
+  "short_name": "フォトログ",
+  "description": "撮影した写真に時刻・住所・走行距離を記録し、1日分をPDFにします",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#111418",
+  "theme_color": "#111418",
+  "lang": "ja",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

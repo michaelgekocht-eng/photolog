@@ -1,0 +1,678 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="フォトログ">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#111418">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<title>フォトログ</title>
+<script src="vendor/jspdf.umd.min.js"></script>
+<script src="vendor/tesseract.min.js"></script>
+<style>
+  :root { --bg:#111418; --panel:#1b2027; --text:#eef1f5; --sub:#9aa5b4; --accent:#ff5a4d; --ok:#3ecf8e; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif; }
+  body { padding: env(safe-area-inset-top) 0 calc(env(safe-area-inset-bottom) + 76px); }
+  header { display:flex; align-items:center; justify-content:space-between; padding:10px 14px; gap:10px; }
+  header h1 { font-size:17px; margin:0; }
+  input[type=date] { background:var(--panel); color:var(--text); border:1px solid #2c3440;
+    border-radius:8px; padding:6px 8px; font-size:15px; }
+  #cam { position:relative; background:#000; width:100%; height:56vh; max-height:520px; overflow:hidden; }
+  #video { width:100%; height:100%; object-fit:contain; display:block; }
+  #camMsg { position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+    text-align:center; padding:20px; color:var(--sub); font-size:14px; line-height:1.6; }
+  #gpsBadge { position:absolute; top:8px; left:8px; background:rgba(0,0,0,.55); border-radius:999px;
+    padding:4px 10px; font-size:12px; }
+  #gpsBadge.ok { color:var(--ok); }
+  #odoToggle { position:absolute; top:8px; right:8px; background:rgba(0,0,0,.55); border-radius:999px;
+    padding:4px 10px; font-size:12px; display:flex; align-items:center; gap:6px; }
+  .pill { position:absolute; background:rgba(0,0,0,.55); border-radius:999px; padding:4px 10px;
+    font-size:12px; display:flex; align-items:center; gap:6px; }
+  #offBadge { top:38px; left:8px; color:var(--sub); }
+  #offBadge.ok { color:var(--ok); }
+  #pdfToggle { bottom:8px; right:8px; }
+  #frame { position:absolute; display:none; border:2px solid #fff; border-radius:8px;
+    box-shadow:0 0 0 100vmax rgba(0,0,0,.4); pointer-events:none; }
+  #frame span { position:absolute; left:0; right:0; top:-22px; text-align:center; font-size:12px;
+    text-shadow:0 1px 3px #000; white-space:nowrap; }
+  .controls { display:flex; align-items:center; justify-content:space-around; padding:14px 10px; }
+  .circle { width:48px; height:48px; border-radius:50%; background:var(--panel); border:1px solid #2c3440;
+    color:var(--text); font-size:12px; display:flex; align-items:center; justify-content:center; }
+  #shutter { width:76px; height:76px; border-radius:50%; background:#fff; border:5px solid #666;
+    outline:3px solid #fff; outline-offset:-10px; }
+  #shutter:active { transform:scale(.94); }
+  #shutter:disabled { opacity:.4; }
+  #status { min-height:20px; text-align:center; font-size:13px; color:var(--sub); padding:0 12px; }
+  .count { padding:8px 14px 4px; font-size:13px; color:var(--sub); }
+  #gallery { display:grid; grid-template-columns:repeat(3,1fr); gap:4px; padding:0 4px; }
+  .item { position:relative; aspect-ratio:1; background:var(--panel); overflow:hidden; border-radius:6px; }
+  .item img { width:100%; height:100%; object-fit:cover; display:block; }
+  .item .t { position:absolute; left:0; right:0; bottom:0; font-size:11px; padding:2px 5px;
+    background:rgba(0,0,0,.6); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .item .x { position:absolute; top:3px; right:3px; width:24px; height:24px; border-radius:50%;
+    background:rgba(0,0,0,.65); color:#fff; border:0; font-size:14px; line-height:1; }
+  footer { position:fixed; left:0; right:0; bottom:0; padding:10px 14px calc(env(safe-area-inset-bottom) + 10px);
+    background:linear-gradient(transparent, var(--bg) 35%); }
+  #pdfBtn { width:100%; padding:14px; border:0; border-radius:12px; background:var(--accent);
+    color:#fff; font-size:16px; font-weight:700; }
+  #pdfBtn:disabled { opacity:.45; }
+  .overlay { position:fixed; inset:0; background:rgba(0,0,0,.88); display:none; z-index:10;
+    align-items:center; justify-content:center; flex-direction:column; gap:14px; padding:18px; }
+  .overlay.show { display:flex; }
+  .overlay img { max-width:100%; max-height:78vh; }
+  .overlay .row { display:flex; gap:10px; width:100%; max-width:360px; }
+  .overlay button, .overlay a.btn { flex:1; padding:13px; border-radius:10px; border:0; text-align:center;
+    background:var(--panel); color:var(--text); font-size:15px; text-decoration:none; }
+  .overlay .primary { background:var(--accent) !important; font-weight:700; }
+  #odoInput { flex:1; min-width:0; background:var(--panel); color:var(--text); border:1px solid #2c3440;
+    border-radius:10px; padding:10px 12px; font-size:30px; text-align:center; letter-spacing:.06em;
+    font-variant-numeric:tabular-nums; }
+  #toast { position:fixed; left:50%; top:14px; transform:translateX(-50%); background:#222a33; color:#fff;
+    padding:9px 16px; border-radius:999px; font-size:13px; z-index:20; display:none; max-width:90%; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📷 フォトログ</h1>
+  <input type="date" id="dateSel">
+</header>
+
+<section id="cam">
+  <video id="video" playsinline autoplay muted></video>
+  <div id="frame"><span>走行距離の数字を枠に合わせる</span></div>
+  <div id="camMsg"></div>
+  <div id="gpsBadge">位置情報: 取得中…</div>
+  <label id="odoToggle"><input type="checkbox" id="odoChk" checked> ODO読取</label>
+  <div class="pill" id="offBadge">オフライン準備: 確認中…</div>
+  <label class="pill" id="pdfToggle"><input type="checkbox" id="autoPdfChk" checked> 撮影後にPDF</label>
+</section>
+
+<div class="controls">
+  <label class="circle" id="fileLabel" title="カメラが使えない時の代替">
+    📁<input type="file" id="fileInput" accept="image/*" capture="environment" hidden>
+  </label>
+  <button id="shutter" aria-label="撮影"></button>
+  <button class="circle" id="flip">反転</button>
+</div>
+<div id="status"></div>
+
+<div class="count" id="count"></div>
+<section id="gallery"></section>
+
+<footer><button id="pdfBtn">この日のPDFを作成</button></footer>
+
+<!-- 画像プレビュー -->
+<div class="overlay" id="viewer">
+  <img id="viewerImg" alt="">
+  <div class="row"><button id="viewerClose">閉じる</button></div>
+</div>
+
+<!-- 走行距離の確認 -->
+<div class="overlay" id="odoDlg">
+  <div style="font-size:15px">走行距離を確認してください</div>
+  <img id="odoImg" alt="" style="max-height:22vh;border-radius:6px;background:#000">
+  <div id="odoNote" style="font-size:13px;color:var(--sub);text-align:center"></div>
+  <div class="row" style="align-items:center">
+    <input id="odoInput" inputmode="numeric" pattern="[0-9]*" autocomplete="off" maxlength="7" placeholder="123456">
+    <span style="font-size:18px">km</span>
+  </div>
+  <div class="row">
+    <button id="odoRetake">撮り直す</button>
+    <button class="primary" id="odoOk">保存</button>
+  </div>
+</div>
+
+<!-- PDF完成 -->
+<div class="overlay" id="pdfDone">
+  <div id="pdfInfo" style="font-size:16px;text-align:center;line-height:1.7"></div>
+  <div class="row">
+    <button class="primary" id="pdfShare">ファイルに保存</button>
+  </div>
+  <div style="font-size:12px;color:var(--sub);text-align:center;line-height:1.6;max-width:360px">
+    メニューの「"ファイル"に保存」を選び、同じ名前が出たら「置き換える」を選ぶと、前のPDFが新しくなります。
+  </div>
+  <div class="row">
+    <a class="btn" id="pdfDownload">ダウンロード</a>
+    <button id="pdfClose">閉じる</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+/* ========= ユーティリティ ========= */
+const $ = id => document.getElementById(id);
+const pad = n => String(n).padStart(2, '0');
+const dayKey = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const WEEK = ['日','月','火','水','木','金','土'];
+const fmtTime = d => `${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())}(${WEEK[d.getDay()]}) ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+const fmtHM = ts => { const d = new Date(ts); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+const fmtOdo = s => (s ? Number(s).toLocaleString('en-US') : '');
+
+let toastTimer;
+function toast(msg, ms = 2500) {
+  const t = $('toast'); t.textContent = msg; t.style.display = 'block';
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.style.display = 'none', ms);
+}
+const setStatus = s => $('status').textContent = s || '';
+
+/* ========= IndexedDB ========= */
+let db;
+function openDB() {
+  return new Promise((res, rej) => {
+    const rq = indexedDB.open('photoLog', 1);
+    rq.onupgradeneeded = () => {
+      const st = rq.result.createObjectStore('photos', { keyPath: 'id', autoIncrement: true });
+      st.createIndex('day', 'day');
+    };
+    rq.onsuccess = () => { db = rq.result; res(); };
+    rq.onerror = () => rej(rq.error);
+  });
+}
+const tx = (mode) => db.transaction('photos', mode).objectStore('photos');
+const reqP = rq => new Promise((res, rej) => { rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error); });
+const addPhoto = rec => reqP(tx('readwrite').add(rec));
+const delPhoto = id => reqP(tx('readwrite').delete(id));
+async function getByDay(day) {
+  const list = await reqP(tx('readonly').index('day').getAll(day));
+  return list.sort((a, b) => a.ts - b.ts);
+}
+
+/* ========= 位置情報 ========= */
+let lastPos = null;      // {lat, lon, acc, at}
+let lastGeo = null;      // {lat, lon, address}
+
+function startWatch() {
+  if (!navigator.geolocation) { $('gpsBadge').textContent = '位置情報: 非対応'; return; }
+  navigator.geolocation.watchPosition(p => {
+    lastPos = { lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy, at: Date.now() };
+    const b = $('gpsBadge'); b.textContent = `位置情報: OK (±${Math.round(p.coords.accuracy)}m)`; b.className = 'ok';
+  }, err => {
+    $('gpsBadge').textContent = '位置情報: ' + (err.code === 1 ? '許可されていません' : '取得できません');
+  }, { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 });
+}
+
+function getFreshPosition() {
+  if (lastPos && Date.now() - lastPos.at < 30000) return Promise.resolve(lastPos);
+  return new Promise(res => {
+    if (!navigator.geolocation) return res(lastPos);
+    navigator.geolocation.getCurrentPosition(
+      p => res({ lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy, at: Date.now() }),
+      () => res(lastPos),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 15000 });
+  });
+}
+
+function distM(lat1, lon1, lat2, lon2) {
+  const R = 6371000, r = Math.PI / 180;
+  const dLat = (lat2 - lat1) * r, dLon = (lon2 - lon1) * r;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*r) * Math.cos(lat2*r) * Math.sin(dLon/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+// 住所の組み立て（日本向け: 都道府県→市区町村→町丁目）。番地(house_number)は精度が不安定なため含めていません。
+function formatAddress(j) {
+  const a = j.address || {};
+  if (a.country_code && a.country_code !== 'jp') return j.display_name || null;
+  const keys = ['province','state','county','city','municipality','town','village',
+                'city_district','suburb','quarter','neighbourhood'];
+  const parts = [];
+  for (const k of keys) if (a[k] && !parts.includes(a[k])) parts.push(a[k]);
+  const s = parts.join('');
+  return s || j.display_name || null;
+}
+
+async function reverseGeocode(lat, lon) {
+  if (lastGeo && distM(lastGeo.lat, lastGeo.lon, lat, lon) < 30) return lastGeo.address;
+  if (navigator.onLine === false) return null;      // 圏外は待たずに住所なしで続行
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1&accept-language=ja`;
+    const r = await fetch(url, { signal: ctrl.signal });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const address = formatAddress(await r.json());
+    if (address) lastGeo = { lat, lon, address };
+    return address;
+  } catch (e) {
+    return null;
+  } finally { clearTimeout(timer); }
+}
+
+/* ========= 走行距離（枠 + OCR） ========= */
+// 枠の大きさ: 映像の幅の80%、縦横比 4:1。撮影画面の枠と切り出しで同じ式を使います。
+const FRAME = { w: 0.8, ar: 4 };
+let odoMode = true;
+try { odoMode = localStorage.getItem('odoMode') !== '0'; } catch (e) {}
+
+function frameRect(vw, vh) {
+  const w = vw * FRAME.w, h = w / FRAME.ar;
+  return { x: (vw - w) / 2, y: (vh - h) / 2, w, h };
+}
+
+function layoutFrame() {
+  const v = $('video'), cam = $('cam'), f = $('frame');
+  if (!odoMode || !v.videoWidth) { f.style.display = 'none'; return; }
+  const cw = cam.clientWidth, ch = cam.clientHeight;
+  const s = Math.min(cw / v.videoWidth, ch / v.videoHeight);
+  const ox = (cw - v.videoWidth * s) / 2, oy = (ch - v.videoHeight * s) / 2;
+  const r = frameRect(v.videoWidth, v.videoHeight);
+  Object.assign(f.style, {
+    display: 'block', left: (ox + r.x * s) + 'px', top: (oy + r.y * s) + 'px',
+    width: (r.w * s) + 'px', height: (r.h * s) + 'px'
+  });
+}
+
+function cropFrame(canvas) {
+  const r = frameRect(canvas.width, canvas.height);
+  const c = document.createElement('canvas');
+  c.width = Math.round(r.w); c.height = Math.round(r.h);
+  c.getContext('2d').drawImage(canvas, r.x, r.y, r.w, r.h, 0, 0, c.width, c.height);
+  return c;
+}
+
+// OCR用の前処理。mode 'bin' = 大津の二値化、'gray' = コントラスト補正のみ。
+// 文字が背景より明るい（暗い背景に光る数字）場合は反転して「白地に黒文字」にそろえます。
+function prepOCR(src, mode) {
+  const H = 160, P = 24;
+  const scale = H / src.height;
+  const w = Math.max(1, Math.round(src.width * scale));
+  const tmp = document.createElement('canvas'); tmp.width = w; tmp.height = H;
+  const tx2 = tmp.getContext('2d', { willReadFrequently: true });
+  tx2.imageSmoothingQuality = 'high';
+  tx2.drawImage(src, 0, 0, w, H);
+  const img = tx2.getImageData(0, 0, w, H), d = img.data, n = w * H;
+  const g = new Uint8ClampedArray(n);
+  const hist = new Array(256).fill(0);
+  let lo = 255, hi = 0, sum = 0;
+  for (let i = 0; i < n; i++) {
+    const v = Math.round(0.299 * d[i*4] + 0.587 * d[i*4+1] + 0.114 * d[i*4+2]);
+    g[i] = v; hist[v]++; sum += v;
+    if (v < lo) lo = v; if (v > hi) hi = v;
+  }
+  // 大津の閾値
+  let sumAll = 0; for (let t = 0; t < 256; t++) sumAll += t * hist[t];
+  let wB = 0, sumB = 0, best = -1, thr = 128;
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t]; if (!wB) continue;
+    const wF = n - wB; if (!wF) break;
+    sumB += t * hist[t];
+    const mB = sumB / wB, mF = (sumAll - sumB) / wF;
+    const between = wB * wF * (mB - mF) * (mB - mF);
+    if (between > best) { best = between; thr = t; }
+  }
+  let bright = 0; for (let t = thr + 1; t < 256; t++) bright += hist[t];
+  const textIsBright = bright < n / 2;        // 明るい側が少数 → 明るい文字
+  const range = Math.max(1, hi - lo);
+  for (let i = 0; i < n; i++) {
+    let v;
+    if (mode === 'bin') {
+      const on = g[i] > thr;
+      v = (textIsBright ? !on : on) ? 255 : 0;
+    } else {
+      v = Math.round((g[i] - lo) * 255 / range);
+      if (textIsBright) v = 255 - v;
+    }
+    d[i*4] = d[i*4+1] = d[i*4+2] = v; d[i*4+3] = 255;
+  }
+  const out = document.createElement('canvas');
+  out.width = w + P * 2; out.height = H + P * 2;
+  const ox = out.getContext('2d');
+  ox.fillStyle = '#fff'; ox.fillRect(0, 0, out.width, out.height);
+  ox.putImageData(img, P, P);
+  return out;
+}
+
+let ocrWorkerP = null;
+function getWorker() {
+  if (!ocrWorkerP) {
+    ocrWorkerP = (async () => {
+      if (!window.Tesseract) throw new Error('OCRライブラリを読み込めません');
+      // 部品はすべてこのアプリと同じ場所から読み込む（オフライン用）
+      const base = new URL('vendor/', location.href).href;
+      const w = await Tesseract.createWorker('eng', 1, {
+        workerPath: base + 'worker.min.js',
+        corePath: base + 'core',
+        langPath: base + 'lang',
+        workerBlobURL: false
+      });
+      await w.setParameters({
+        tessedit_char_whitelist: '0123456789',
+        tessedit_pageseg_mode: '7',          // 1行のテキスト
+        user_defined_dpi: '300'
+      });
+      return w;
+    })().catch(e => { ocrWorkerP = null; throw e; });
+  }
+  return ocrWorkerP;
+}
+
+async function readOdometer(crop) {
+  try {
+    const w = await getWorker();
+    let best = { text: '', conf: 0 };
+    for (const mode of ['bin', 'gray']) {
+      const r = await w.recognize(prepOCR(crop, mode));
+      const digits = String(r.data.text || '').replace(/\D/g, '');
+      const conf = Math.round(r.data.confidence || 0);
+      if (digits.length >= 3 && conf > best.conf) best = { text: digits.slice(0, 7), conf };
+      if (best.conf >= 85) break;
+    }
+    return best;
+  } catch (e) {
+    return { text: '', conf: 0, error: e.message };
+  }
+}
+
+const CANCEL = Symbol('cancel');
+function confirmOdo(crop, guess) {
+  return new Promise(resolve => {
+    const dlg = $('odoDlg'), inp = $('odoInput');
+    $('odoImg').src = crop.toDataURL('image/jpeg', 0.85);
+    inp.value = guess.text || '';
+    $('odoNote').textContent = guess.text
+      ? `自動で読み取りました（信頼度 ${guess.conf}%）。違っていれば直してください。`
+      : (guess.error ? `自動読取ができませんでした（${guess.error}）。数字を入力してください。`
+                     : '数字を読み取れませんでした。入力するか、撮り直してください。');
+    const close = v => {
+      dlg.classList.remove('show');
+      $('odoOk').onclick = $('odoRetake').onclick = inp.oninput = null;
+      resolve(v);
+    };
+    inp.oninput = () => { inp.value = inp.value.replace(/\D/g, '').slice(0, 7); };
+    $('odoOk').onclick = () => close(inp.value);
+    $('odoRetake').onclick = () => close(CANCEL);
+    dlg.classList.add('show');
+    if (!inp.value) inp.focus();
+  });
+}
+
+$('odoChk').checked = odoMode;
+$('odoChk').onchange = e => {
+  odoMode = e.target.checked;
+  try { localStorage.setItem('odoMode', odoMode ? '1' : '0'); } catch (err) {}
+  layoutFrame();
+  if (odoMode) getWorker().catch(() => {});
+};
+$('video').addEventListener('loadedmetadata', layoutFrame);
+window.addEventListener('resize', layoutFrame);
+window.addEventListener('orientationchange', () => setTimeout(layoutFrame, 300));
+
+/* ========= カメラ ========= */
+let stream = null, facing = 'environment';
+async function startCamera() {
+  const msg = $('camMsg');
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    msg.style.display = 'flex';
+    msg.innerHTML = 'この環境ではカメラのプレビューを使えません。<br>左下の 📁 ボタンで撮影してください。<br>(HTTPSで開く必要があります)';
+    return;
+  }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: facing }, width: { ideal: 1920 }, height: { ideal: 1440 } }, audio: false });
+    $('video').srcObject = stream;
+    msg.style.display = 'none';
+  } catch (e) {
+    msg.style.display = 'flex';
+    msg.innerHTML = 'カメラを起動できませんでした。<br>ブラウザのカメラ許可を確認するか、左下の 📁 ボタンを使ってください。';
+  }
+}
+
+/* ========= スタンプ描画 ========= */
+function wrapText(ctx, text, maxW) {
+  const lines = []; let cur = '';
+  for (const ch of text) {
+    if (ctx.measureText(cur + ch).width > maxW && cur) { lines.push(cur); cur = ch; } else cur += ch;
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+function stampCanvas(canvas, when, pos, address, odo) {
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  const fs = Math.round(Math.min(w, h) * 0.036);
+  const pad = Math.round(fs * 0.7), lh = Math.round(fs * 1.35);
+  const family = '-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif';
+
+  ctx.font = `bold ${Math.round(fs * 1.15)}px ${family}`;
+  const timeLine = fmtTime(when);
+  const odoLine = odo ? `走行距離 ${fmtOdo(odo)} km` : '';
+
+  ctx.font = `${fs}px ${family}`;
+  let addrLines;
+  if (address) addrLines = wrapText(ctx, address, w - pad * 2);
+  else addrLines = [pos ? '住所は取得できませんでした（通信なし）' : '位置情報なし'];
+  const coord = pos ? `緯度 ${pos.lat.toFixed(6)} / 経度 ${pos.lon.toFixed(6)}  (±${Math.round(pos.acc)}m)` : '';
+
+  const small = Math.round(fs * 0.8);
+  const total = pad * 2 + Math.round(fs * 1.5) + (odoLine ? Math.round(fs * 1.5) : 0)
+              + addrLines.length * lh + (coord ? Math.round(small * 1.4) : 0);
+  const top = h - total;
+
+  ctx.fillStyle = 'rgba(0,0,0,0.58)';
+  ctx.fillRect(0, top, w, total);
+  ctx.fillStyle = '#fff'; ctx.textBaseline = 'top';
+
+  let y = top + pad;
+  ctx.font = `bold ${Math.round(fs * 1.15)}px ${family}`;
+  ctx.fillText(timeLine, pad, y); y += Math.round(fs * 1.5);
+
+  if (odoLine) {
+    ctx.font = `bold ${Math.round(fs * 1.15)}px ${family}`;
+    ctx.fillText(odoLine, pad, y); y += Math.round(fs * 1.5);
+  }
+
+  ctx.font = `${fs}px ${family}`;
+  for (const l of addrLines) { ctx.fillText(l, pad, y); y += lh; }
+
+  if (coord) {
+    ctx.font = `${small}px ${family}`; ctx.fillStyle = 'rgba(255,255,255,.8)';
+    ctx.fillText(coord, pad, y);
+  }
+}
+
+/* ========= 撮影 ========= */
+let busy = false;
+async function capture(sourceDrawer) {
+  if (busy) return;
+  busy = true; $('shutter').disabled = true;
+  const when = new Date();                // シャッターを押した時刻
+  try {
+    setStatus('位置情報を取得中…');
+    const posPromise = getFreshPosition();
+    const canvas = document.createElement('canvas');
+    await sourceDrawer(canvas);
+
+    // 枠の中だけを切り出して、位置・住所の取得と並行して数字を読み取る
+    let crop = null, ocrPromise = null;
+    if (odoMode) { crop = cropFrame(canvas); ocrPromise = readOdometer(crop); }
+
+    const pos = await posPromise;
+    let address = null;
+    if (pos) { setStatus('住所を取得中…'); address = await reverseGeocode(pos.lat, pos.lon); }
+
+    let odo = null;
+    if (odoMode) {
+      setStatus('数字を読み取り中…');
+      const guess = await ocrPromise;
+      setStatus('');
+      const ans = await confirmOdo(crop, guess);
+      if (ans === CANCEL) { toast('撮り直してください'); return; }
+      odo = ans ? String(parseInt(ans, 10)) : null;
+    }
+
+    stampCanvas(canvas, when, pos, address, odo);
+    const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.88));
+    await addPhoto({
+      day: dayKey(when), ts: when.getTime(), blob, odo,
+      lat: pos ? pos.lat : null, lon: pos ? pos.lon : null, acc: pos ? pos.acc : null, address
+    });
+    $('dateSel').value = dayKey(when);
+    await render();
+    setStatus('');
+    toast(address ? '保存しました' : '保存しました（住所は取得できず）');
+    if (navigator.vibrate) navigator.vibrate(30);
+    if (autoPdf) await makePDF();       // 撮影のたびに、その日のPDFを作り直す
+  } catch (e) {
+    console.error(e); setStatus(''); toast('撮影に失敗しました: ' + e.message, 4000);
+  } finally { busy = false; $('shutter').disabled = false; setStatus(''); }
+}
+
+$('shutter').onclick = () => capture(async canvas => {
+  const v = $('video');
+  if (!v.videoWidth) throw new Error('カメラが起動していません');
+  canvas.width = v.videoWidth; canvas.height = v.videoHeight;
+  canvas.getContext('2d').drawImage(v, 0, 0);
+});
+
+$('fileInput').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  capture(async canvas => {
+    const bmp = await createImageBitmap(f, { imageOrientation: 'from-image' });
+    canvas.width = bmp.width; canvas.height = bmp.height;
+    canvas.getContext('2d').drawImage(bmp, 0, 0);
+  });
+};
+
+$('flip').onclick = () => { facing = facing === 'environment' ? 'user' : 'environment'; startCamera(); };
+
+/* ========= ギャラリー ========= */
+let urls = [];
+async function render() {
+  urls.forEach(u => URL.revokeObjectURL(u)); urls = [];
+  const day = $('dateSel').value;
+  const list = await getByDay(day);
+  $('count').textContent = `${day} の写真: ${list.length}枚`;
+  $('pdfBtn').disabled = list.length === 0;
+  const g = $('gallery'); g.innerHTML = '';
+  for (const p of list) {
+    const url = URL.createObjectURL(p.blob); urls.push(url);
+    const d = document.createElement('div'); d.className = 'item';
+    const label = fmtHM(p.ts) + (p.odo ? ` · ${fmtOdo(p.odo)}km` : '');
+    d.innerHTML = `<img src="${url}" alt=""><div class="t">${label}</div><button class="x" aria-label="削除">×</button>`;
+    d.querySelector('img').onclick = () => { $('viewerImg').src = url; $('viewer').classList.add('show'); };
+    d.querySelector('.x').onclick = async () => {
+      if (confirm('この写真を削除しますか？')) { await delPhoto(p.id); render(); }
+    };
+    g.appendChild(d);
+  }
+}
+$('viewerClose').onclick = () => $('viewer').classList.remove('show');
+$('dateSel').onchange = render;
+
+/* ========= PDF出力 ========= */
+const blobToDataURL = b => new Promise((res, rej) => {
+  const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(b);
+});
+let pdfBlob = null, pdfName = '', pdfUrl = null;
+
+let autoPdf = true;
+try { autoPdf = localStorage.getItem('autoPdf') !== '0'; } catch (e) {}
+$('autoPdfChk').checked = autoPdf;
+$('autoPdfChk').onchange = e => {
+  autoPdf = e.target.checked;
+  try { localStorage.setItem('autoPdf', autoPdf ? '1' : '0'); } catch (err) {}
+};
+
+// その日の写真を撮影順に並べて、1枚1ページのPDFを作る（毎回、全体を作り直す）。
+// PDFの文字は英数字のみ（日本語フォントを埋め込まないため）。日本語は写真の帯に焼き込んであります。
+async function buildPDF(day, list) {
+  const { jsPDF } = window.jspdf;
+  let doc = null, prevOdo = null;
+  for (let i = 0; i < list.length; i++) {
+    const bmp = await createImageBitmap(list[i].blob);
+    const orient = bmp.width > bmp.height ? 'l' : 'p';
+    if (!doc) doc = new jsPDF({ orientation: orient, unit: 'mm', format: 'a4' });
+    else doc.addPage('a4', orient);
+    const pw = doc.internal.pageSize.getWidth(), ph = doc.internal.pageSize.getHeight();
+    const m = 8, footer = 9;
+    const aw = pw - m * 2, ah = ph - m * 2 - footer;
+    const s = Math.min(aw / bmp.width, ah / bmp.height);
+    const w = bmp.width * s, h = bmp.height * s;
+    doc.addImage(await blobToDataURL(list[i].blob), 'JPEG', (pw - w) / 2, m + (ah - h) / 2, w, h);
+
+    let label = `${day}   ${i + 1} / ${list.length}`;
+    const odo = list[i].odo ? Number(list[i].odo) : null;
+    if (odo !== null) {
+      label += `   ODO ${fmtOdo(odo)} km`;
+      if (prevOdo !== null) {
+        const diff = odo - prevOdo;
+        label += `  (${diff >= 0 ? '+' : ''}${diff.toLocaleString('en-US')} km)`;
+      }
+      prevOdo = odo;
+    }
+    doc.setFontSize(10); doc.setTextColor(90);
+    doc.text(label, pw / 2, ph - m + 1, { align: 'center' });
+    if (bmp.close) bmp.close();
+    setStatus(`PDFを作成中… ${i + 1}/${list.length}`);
+  }
+  return doc.output('blob');
+}
+
+async function makePDF() {
+  if (!window.jspdf) { toast('PDFの部品を読み込めていません。通信できる場所で開き直してください', 4000); return; }
+  const day = $('dateSel').value;
+  const list = await getByDay(day);
+  if (!list.length) return;
+  $('pdfBtn').disabled = true; setStatus('PDFを作成中…');
+  try {
+    pdfBlob = await buildPDF(day, list);
+    pdfName = `photolog_${day}.pdf`;               // 同じ日は同じ名前 → 保存時に置き換えられる
+    if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+    pdfUrl = URL.createObjectURL(pdfBlob);
+    const a = $('pdfDownload'); a.href = pdfUrl; a.download = pdfName;
+    $('pdfInfo').innerHTML = `✅ PDFができました<br>${pdfName}<br>${list.length}枚 / ${(pdfBlob.size/1024/1024).toFixed(1)}MB`;
+    $('pdfShare').style.display = (navigator.canShare && navigator.share) ? '' : 'none';
+    $('pdfDone').classList.add('show');
+  } catch (e) {
+    console.error(e); toast('PDF作成に失敗しました: ' + e.message, 4000);
+  } finally { setStatus(''); $('pdfBtn').disabled = false; }
+}
+$('pdfBtn').onclick = makePDF;
+$('pdfClose').onclick = () => $('pdfDone').classList.remove('show');
+$('pdfShare').onclick = async () => {
+  try {
+    const f = new File([pdfBlob], pdfName, { type: 'application/pdf' });
+    if (navigator.canShare && navigator.canShare({ files: [f] })) {
+      await navigator.share({ files: [f] });
+      $('pdfDone').classList.remove('show');
+    } else toast('この端末では共有できません。「ダウンロード」を使ってください');
+  } catch (e) { /* キャンセル */ }
+};
+
+/* ========= オフライン対応 ========= */
+(function setupOffline() {
+  const badge = $('offBadge');
+  const show = (ok, text) => { badge.textContent = text; badge.className = 'pill' + (ok ? ' ok' : ''); };
+  if (!('serviceWorker' in navigator)) { show(false, 'オフライン: 非対応'); return; }
+  navigator.serviceWorker.register('sw.js').then(() => navigator.serviceWorker.ready)
+    .then(() => show(true, '✓ オフライン可'))
+    .catch(() => show(false, 'オフライン準備に失敗'));
+  // 部品の保存が終わるまで、時間がかかることがあります
+  show(false, 'オフライン準備中…');
+})();
+
+/* ========= 起動 ========= */
+(async function init() {
+  $('dateSel').value = dayKey(new Date());
+  try { await openDB(); } catch (e) { toast('保存領域を開けません: ' + e.message, 5000); return; }
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
+  startWatch();
+  startCamera();
+  if (odoMode) getWorker().catch(() => {});   // OCRを先に読み込んでおく
+  render();
+})();
+</script>
+</body>
+</html>
